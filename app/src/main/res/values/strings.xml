@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">JARVIS</string>
+    <string name="jarvis_accessibility_description">Allows JARVIS to perform user-requested navigation, scrolling, tap gestures, and text entry. Enable only if you want these features.</string>
+</resources>
