@@ -103,7 +103,7 @@ private fun JarvisScreen(
     listen: ((String) -> Unit, (String) -> Unit) -> Unit
 ) {
     val context = LocalContext.current
-    var settingsOpen by remember { mutableStateOf(false) }
+    var settingsOpen by remember { mutableStateOf(true) }
     var command by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("SYSTEM READY · OFFLINE COMMANDS AVAILABLE") }
     var busy by remember { mutableStateOf(false) }
