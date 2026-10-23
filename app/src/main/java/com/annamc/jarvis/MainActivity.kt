@@ -1,6 +1,7 @@
 package com.annamc.jarvis
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -103,14 +104,15 @@ private fun JarvisScreen(
     listen: ((String) -> Unit, (String) -> Unit) -> Unit
 ) {
     val context = LocalContext.current
-    var settingsOpen by remember { mutableStateOf(true) }
+    var settingsOpen by remember { mutableStateOf(!context.getSharedPreferences("jarvis_preferences", Context.MODE_PRIVATE).getBoolean("onboarding_complete", false)) }
+    var voiceResult by remember { mutableStateOf<String?>(null) }
     var command by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("SYSTEM READY · OFFLINE COMMANDS AVAILABLE") }
     var busy by remember { mutableStateOf(false) }
     var logs by remember { mutableStateOf(listOf<LogItem>()) }
 
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) listen({ command = it; status = "VOICE CAPTURED" }, { status = it })
+        if (granted) listen({ voiceResult = it }, { status = it })
         else status = "Microphone permission denied."
     }
 
@@ -210,6 +212,16 @@ private fun JarvisScreen(
         }
     }
 
+    LaunchedEffect(voiceResult) {
+        val recognized = voiceResult?.trim()
+        if (!recognized.isNullOrEmpty()) {
+            voiceResult = null
+            command = recognized
+            status = "VOICE RECOGNIZED · EXECUTING"
+            runCommand(recognized)
+        }
+    }
+
     MaterialTheme(colorScheme = darkColorScheme(
         primary = Cyan, background = Deep, surface = Panel,
         onBackground = Color(0xFFEAF7FF), onSurface = Color(0xFFEAF7FF)
@@ -219,9 +231,9 @@ private fun JarvisScreen(
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Column {
                         Text("J.A.R.V.I.S.", color = Cyan, fontSize = 27.sp, fontWeight = FontWeight.Black, letterSpacing = 3.sp)
-                        Text("PERSONAL AI SYSTEM · v0.1.0", color = Color(0xFF8DAFBE), fontSize = 10.sp, letterSpacing = 1.sp)
+                        Text("PERSONAL ASSISTANT · v0.2.0", color = Color(0xFF8DAFBE), fontSize = 10.sp, letterSpacing = 1.sp)
                     }
-                    TextButton(onClick = { settingsOpen = !settingsOpen }) { Text(if (settingsOpen) "CLOSE" else "SETUP") }
+                    TextButton(onClick = { settingsOpen = !settingsOpen; if (!settingsOpen) context.getSharedPreferences("jarvis_preferences", Context.MODE_PRIVATE).edit().putBoolean("onboarding_complete", true).apply() }) { Text(if (settingsOpen) "CLOSE" else "SETUP") }
                 }
                 Spacer(Modifier.height(14.dp))
                 Box(Modifier.fillMaxWidth().height(130.dp), contentAlignment = Alignment.Center) {
@@ -273,7 +285,7 @@ private fun JarvisScreen(
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = {
                         if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                            listen({ command = it; status = "VOICE CAPTURED" }, { status = it })
+                            listen({ voiceResult = it }, { status = it })
                         } else micPermission.launch(Manifest.permission.RECORD_AUDIO)
                     }, modifier = Modifier.weight(1f), enabled = !busy) { Text("🎙 SPEAK") }
                     OutlinedButton(onClick = { runCommand(command) }, modifier = Modifier.weight(1f), enabled = !busy) {
