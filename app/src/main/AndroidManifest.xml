@@ -16,7 +16,7 @@
             android:name=".JarvisAccessibilityService"
             android:label="JARVIS device controls"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
-            android:exported="false">
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />
             </intent-filter>
