@@ -29,11 +29,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import org.json.JSONArray
-import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
-import java.net.URLEncoder
 import java.util.Locale
 import java.util.concurrent.Executors
 
@@ -108,10 +103,6 @@ private fun JarvisScreen(
     listen: ((String) -> Unit, (String) -> Unit) -> Unit
 ) {
     val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences("jarvis_prefs", 0) }
-    var endpoint by remember { mutableStateOf(prefs.getString("endpoint", "https://api.openai.com/v1/chat/completions") ?: "") }
-    var model by remember { mutableStateOf(prefs.getString("model", "") ?: "") }
-    var apiKey by remember { mutableStateOf(prefs.getString("key", "") ?: "") }
     var settingsOpen by remember { mutableStateOf(false) }
     var command by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("SYSTEM READY · OFFLINE COMMANDS AVAILABLE") }
@@ -178,17 +169,24 @@ private fun JarvisScreen(
     fun offline(text: String): String {
         val q = text.trim()
         val lower = q.lowercase()
+        val deviceAction = JarvisAccessibilityService.handleCommand(q)
+        if (deviceAction != null) return deviceAction
         return when {
             "wi-fi" in lower || "wifi" in lower -> launchAction("wifi", "")
             "bluetooth" in lower -> launchAction("bluetooth", "")
             lower == "settings" || "open settings" in lower -> launchAction("settings", "")
             lower.startsWith("open ") -> launchAction("app", q.substringAfter(" ", ""))
+            lower.startsWith("launch ") -> launchAction("app", q.substringAfter(" ", ""))
             lower.startsWith("call ") -> launchAction("dial", q.substringAfter(" ").trim())
             lower.startsWith("search ") -> launchAction("search", q.substringAfter(" ").trim())
             lower.startsWith("google ") -> launchAction("search", q.substringAfter(" ").trim())
-            "what can you do" in lower -> "I can open selected apps, open Android, Wi-Fi and Bluetooth settings, open the dialer, and search the web. Configure an AI endpoint for broader conversations."
-            "hello" in lower || "hi jarvis" in lower -> "Hello. JARVIS is online. What do you need?"
-            else -> "I don't have an offline command for that yet. Try open YouTube, open settings, Wi-Fi settings, search space news, or call 123456789."
+            lower.startsWith("what can you do") -> "I can open supported apps, open Android settings, search the web, and—if you enable Accessibility—perform supported navigation, scrolling, and text-entry actions."
+            lower == "hello" || lower.startsWith("hi jarvis") -> "Hello. JARVIS is ready. Tell me what you want me to do."
+            lower.startsWith("who is ") || lower.startsWith("what is ") || lower.startsWith("what are ") ||
+                lower.startsWith("when ") || lower.startsWith("where ") || lower.startsWith("why ") ||
+                lower.startsWith("how ") || lower.endsWith("?") ->
+                launchAction("search", q)
+            else -> "I can try a web search for that. " + launchAction("search", q)
         }
     }
 
@@ -198,40 +196,11 @@ private fun JarvisScreen(
         busy = true
         status = "THINKING…"
         io.execute {
-            val outcome: Pair<String, String> = if (endpoint.isNotBlank() && model.isNotBlank() && apiKey.isNotBlank()) {
-                try {
-                    val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
-                        requestMethod = "POST"
-                        connectTimeout = 12000
-                        readTimeout = 25000
-                        doOutput = true
-                        setRequestProperty("Content-Type", "application/json")
-                        setRequestProperty("Authorization", "Bearer $apiKey")
-                    }
-                    val system = """You are JARVIS, an Android assistant. Return ONLY valid JSON with keys reply, action, value. Allowed actions: none, app, settings, wifi, bluetooth, dial, search, url. Use action none for ordinary answers. Use app for launching an app, dial to open the dialer (never place calls), search for web searches, url for opening a URL. Use only these actions. If ambiguous, ask a question and use action none. Do not claim an action succeeded until the app reports it."""
-                    val payload = JSONObject()
-                        .put("model", model)
-                        .put("messages", JSONArray()
-                            .put(JSONObject().put("role", "system").put("content", system))
-                            .put(JSONObject().put("role", "user").put("content", q)))
-                    connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
-                    val code = connection.responseCode
-                    val stream = if (code in 200..299) connection.inputStream else connection.errorStream
-                    val response = stream.bufferedReader().use { it.readText() }
-                    connection.disconnect()
-                    if (code !in 200..299) error("AI endpoint returned HTTP $code: ${response.take(120)}")
-                    val content = JSONObject(response).getJSONArray("choices").getJSONObject(0)
-                        .getJSONObject("message").getString("content")
-                    val parsed = JSONObject(content)
-                    val reply = parsed.optString("reply", "I'm ready.")
-                    val action = parsed.optString("action", "none")
-                    val value = parsed.optString("value", "")
-                    if (action == "none") Pair(reply, "AI")
-                    else Pair("$reply\n${launchAction(action, value)}", "AI + ACTION")
-                } catch (e: Exception) {
-                    Pair("${offline(q)}\nAI unavailable: ${e.message ?: "connection failed"}", "OFFLINE FALLBACK")
-                }
-            } else Pair(offline(q), "OFFLINE")
+            val outcome: Pair<String, String> = try {
+                Pair(offline(q), "ON-DEVICE")
+            } catch (e: Exception) {
+                Pair("I couldn't complete that command: ${e.message ?: "Android rejected it"}", "ACTION ERROR")
+            }
             (context as? ComponentActivity)?.runOnUiThread {
                 status = "READY · ${outcome.second}"
                 logs = (listOf(LogItem(q, outcome.first, outcome.second)) + logs).take(30)
@@ -266,17 +235,19 @@ private fun JarvisScreen(
                 Spacer(Modifier.height(10.dp))
                 if (settingsOpen) {
                     Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(16.dp)) {
-                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                            Text("AI PROVIDER", color = Cyan, fontWeight = FontWeight.Bold)
-                            OutlinedTextField(endpoint, { endpoint = it }, label = { Text("OpenAI-compatible endpoint") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                            OutlinedTextField(model, { model = it }, label = { Text("Model ID") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                            OutlinedTextField(apiKey, { apiKey = it }, label = { Text("API key") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                            Text("Credentials are stored in app preferences in this prototype. Do not use a valuable key in a shared/public build. Provider free tiers and limits vary.", color = Color(0xFF9CB5C3), fontSize = 11.sp)
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("PERMISSION ONBOARDING", color = Cyan, fontWeight = FontWeight.Bold)
+                            Text("JARVIS uses Android permissions you approve. Enable Accessibility for supported in-app actions; grant microphone access for voice commands.", color = Color(0xFFB8CED8), fontSize = 12.sp, lineHeight = 17.sp)
                             Button(onClick = {
-                                prefs.edit().putString("endpoint", endpoint.trim()).putString("model", model.trim()).putString("key", apiKey.trim()).apply()
-                                status = "SETTINGS SAVED"
-                                settingsOpen = false
-                            }, modifier = Modifier.fillMaxWidth()) { Text("SAVE AI SETTINGS") }
+                                context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                            }, modifier = Modifier.fillMaxWidth()) { Text("ENABLE ACCESSIBILITY") }
+                            OutlinedButton(onClick = {
+                                context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + context.packageName)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                            }, modifier = Modifier.fillMaxWidth()) { Text("APP PERMISSIONS") }
+                            OutlinedButton(onClick = {
+                                micPermission.launch(Manifest.permission.RECORD_AUDIO)
+                            }, modifier = Modifier.fillMaxWidth()) { Text("GRANT MICROPHONE") }
+                            Text("Android does not let apps silently grant themselves permissions. Some actions still require your confirmation.", color = Color(0xFF9CB5C3), fontSize = 11.sp)
                         }
                     }
                 } else {
@@ -334,7 +305,7 @@ private fun JarvisScreen(
                         }
                     }
                 }
-                Text("LIMITED TO SUPPORTED ANDROID ACTIONS · NO UNRESTRICTED DEVICE CONTROL", color = Color(0xFF587989), fontSize = 8.sp)
+                Text("NO API KEY REQUIRED · ANDROID PERMISSIONS ARE USER-CONTROLLED", color = Color(0xFF587989), fontSize = 8.sp)
             }
         }
     }
