@@ -5,9 +5,10 @@ import android.accessibilityservice.GestureDescription
 import android.graphics.Path
 import android.os.Handler
 import android.os.Looper
-import android.util.DisplayMetrics
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import java.util.concurrent.FutureTask
+import java.util.concurrent.TimeUnit
 
 /**
  * Optional user-enabled accessibility bridge. Android requires the user to enable it manually.
@@ -149,9 +150,14 @@ class JarvisAccessibilityService : AccessibilityService() {
                 "tap", "tap center", "press center"
             ) || lower.startsWith("tap ") || lower.startsWith("type ") || lower.startsWith("enter text ")
             if (!supported) return null
-            var result: String? = "Command sent to Android Accessibility."
-            mainHandler.post { result = service.execute(command) }
-            return result
+            if (Looper.myLooper() == Looper.getMainLooper()) return service.execute(command)
+            val task = FutureTask<String?> { service.execute(command) }
+            mainHandler.post(task)
+            return try {
+                task.get(3, TimeUnit.SECONDS)
+            } catch (_: Exception) {
+                "Android did not complete that accessibility action in time."
+            }
         }
     }
 }
