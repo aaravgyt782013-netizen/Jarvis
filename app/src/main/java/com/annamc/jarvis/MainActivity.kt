@@ -61,13 +61,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun startListening(onText: (String) -> Unit, onError: (String) -> Unit) {
+    private fun startListening(onText: (String) -> Unit, reportError: (String) -> Unit) {
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            onError("Speech recognition is unavailable on this device.")
+            reportError("Speech recognition is unavailable on this device.")
             return
         }
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            onError("Grant microphone permission, then try again.")
+            reportError("Grant microphone permission, then try again.")
             return
         }
         recognizer?.destroy()
@@ -78,10 +78,10 @@ class MainActivity : ComponentActivity() {
             override fun onRmsChanged(rmsdB: Float) {}
             override fun onBufferReceived(buffer: ByteArray?) {}
             override fun onEndOfSpeech() {}
-            override fun onError(error: Int) { onError("Speech recognition error $error. Please retry.") }
+            override fun onError(error: Int) { reportError("Speech recognition error $error. Please retry.") }
             override fun onResults(results: Bundle?) {
                 val phrase = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
-                if (phrase.isNullOrBlank()) onError("I didn't catch that.") else onText(phrase)
+                if (phrase.isNullOrBlank()) reportError("I didn't catch that.") else onText(phrase)
             }
             override fun onPartialResults(partialResults: Bundle?) {}
             override fun onEvent(eventType: Int, params: Bundle?) {}
