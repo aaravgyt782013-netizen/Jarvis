@@ -151,7 +151,7 @@ private fun JarvisScreen(
                 "Opening the dialer. Review the number before calling."
             }
             "search" -> {
-                val url = "https://www.google.com/search?q=" + URLEncoder.encode(value, "UTF-8")
+                val url = "https://www.google.com/search?q=" + Uri.encode(value)
                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                 "Searching the web for $value."
             }
